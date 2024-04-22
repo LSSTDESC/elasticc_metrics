@@ -1,4 +1,27 @@
 # elasticc_metrics
+
+Instructions for pulling information about the ELAsTiCC2 campaign and generating metrics of broker performance.
+
+## Directly from the TOM
+
+The TOM elasticc page at https://desc-tom.lbl.gov/elasticc2/ has some diagonostics and metrics pre-computed.  You need an account on the tom to load this page.  You can find the rate at which alerts were streamed during the ELAsTiCC2 campaign; the time delays between alert generation, broker classification, and TOM ingesting of broker classifications; broker classification completeness; and one version of confusion matrices for all broker classifiers.
+
+## Pulling pre-aggregated broker message data via REST API:
+
+See the Jupyter Notebook https://github.com/LSSTDESC/elasticc_metrics/blob/main/elasticc2_rest_metric_demo.ipynb for instructions and a demo.
+
+## Directly querying the database
+
+See the Jupyter Notebook (TODO: Rob, write notebook) for instructions and a demo.
+
+
+---
+
+# EVERYTHING BELOW IS OLD, USE WITH GREAT CAUTION
+
+They may be OK for the original ELAsTiCC campaign, but not ELAsTiCC2.
+
+# elasticc_metrics
 Notebooks for evaluating ELAsTiCC Metrics
 
 For instructions about connecting to the databse, see either

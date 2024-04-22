@@ -12,7 +12,8 @@ import requests
 def parse_args(args=None):
     parser = argparse.ArgumentParser(
         prog='Confusion matrices for the last broker classifications',
-        description='Get confusion matrices for true and last predicted classes for each pair of diaObject and classifierId',
+        description=('Get confusion matrices for true and last predicted classes for '
+                     'each pair of diaObject and classifierId'),
     )
     parser.add_argument('--include-missed', action='store_true',
                         help='Add missed classifications as a predicted class')
@@ -21,11 +22,14 @@ def parse_args(args=None):
     parser.add_argument('--save', action='store_true', help='Save CSV with data')
     parser.add_argument('--norm', default='true', choices=['true', 'pred', 'all'],
                         help='how t onormalize confusion matrices')
-    parser.add_argument('--definition', default='last_best', choices=['last_best', 'best'],
+    parser.add_argument('--definition', default='last_best', choices=['last_best', 'best', 'nth'],
                         help='''definition of classification:
                             "best" means having the largest probability over all classifier messages,
-                            "last_best" means having the largest probability for the most recent alert
+                            "last_best" means having the largest probability for the most recent alert,
+                            "nth" mean probability for the alert on the nth detect (use -n)
                         ''')
+    parser.add_argument('-n', '--nth-detection', default=3, type=int,
+                        help='Which detection to use for --definition nth' )
     parser.add_argument('--classifier_id', type=int, help='consider a single classifier')
     return parser.parse_args(args)
 
@@ -86,7 +90,7 @@ class ConfMatrixClient:
            ORDER BY "brokerName", "brokerVersion", "classifierName", "classifierId"
         '''
         data = self.query(query)
-        logging.info(pformat(data))
+        logging.debug(pformat(data))
         self.classifiers = {row['classifierId']: f'{row["brokerName"]} {row["brokerVersion"]} {row["classifierName"]}'
                             for row in data}
         
@@ -101,6 +105,7 @@ class ConfMatrixClient:
 
     def get_classifications(self, *,
                             definition: str,
+                            nth_detection: int = 3,
                             classifier_id: Optional[int],
                             include_missed: bool = False) -> Dict[str, pd.DataFrame]:
         if include_missed:
@@ -123,11 +128,21 @@ class ConfMatrixClient:
         if definition == 'last_best':
             distinct_order = ( 'elasticc_diaalert."alertSentTimestamp" DESC,'
                                'elasticc_brokerclassification."probability" DESC' )
+            count_join = ''
         elif definition == 'best':
             # I think we need additional sorting over alertSentTimestamp to get the deterministic result for the
             # case for equal probabilities (I've seen prob of 1.0)
             distinct_order = ( 'elasticc_brokerclassification."probability" DESC,'
                                'elasticc_diaalert."alertSentTimestamp" DESC' )
+            count_join = ''
+        elif definition == 'nth':
+            distinct_order = 'elasticc_brokerclassification."probability" DESC'
+            # Yeah, yeah, scary to interpolate a value passed to a function directly
+            #  into SQL, but force it to be an int so that it will be safe.
+            nth_detection = int( nth_detection )
+            count_join = ( f'INNER JOIN elasticc_view_prevsourcecounts '
+                           f'ON elasticc_diaalert."diaSourceId"=elasticc_view_prevsourcecounts."diaSourceId" '
+                           f'  AND elasticc_view_prevsourcecounts.ndetections={nth_detection}' )
         else:
             raise ValueError(f'Unknown classification definition: {definition}')
 
@@ -136,7 +151,7 @@ class ConfMatrixClient:
             if classifier_id is not None and classifier_id != classifier_id_:
                 continue
 
-            logging.info(f'Getting classifications for {classifier_name}')
+            logging.info(f'Getting classifications for {classifier_name}...')
             query = f'''
                 SELECT best_last."classId" AS pred_class,
                        elasticc_gentypeofclassid."classId" AS true_class,
@@ -155,6 +170,7 @@ class ConfMatrixClient:
                       ON elasticc_brokerclassification."brokerMessageId"=elasticc_brokermessage."brokerMessageId"
                    INNER JOIN elasticc_diaalert
                       ON elasticc_brokermessage."alertId"=elasticc_diaalert."alertId"
+                   {count_join}
                    WHERE elasticc_brokerclassification."classifierId"={classifier_id_}
                    ORDER BY elasticc_diaalert."diaObjectId", {distinct_order}
                 ) best_last
@@ -174,6 +190,7 @@ class ConfMatrixClient:
             df['pred_class'] = df['pred_class'].fillna(-1).astype(int)
             dfs[classifier_id_] = df
 
+        logging.info('...done getting all classifications')
         return dfs
 
 
